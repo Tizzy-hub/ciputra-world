@@ -67,12 +67,21 @@ function intro(){sb.innerHTML=`<p class="m" style="font-size:14px">Describe an o
 function openAI(){modal.classList.add("open");intro()}
 document.getElementById("close").onclick=()=>modal.classList.remove("open");
 document.getElementById("go").onclick=()=>ask();qi.onkeydown=e=>e.key=="Enter"&&ask();
+const KW={gift:["Gifts","Jewelry","Florist","Watches","Toys","Beauty"],birthday:["Gifts","Bakery","Florist","Toys"],present:["Gifts","Jewelry","Florist"],lunch:["Dining","Cafe","Bakery"],dinner:["Dining","Bar"],eat:["Dining","Cafe","Bakery"],food:["Dining","Cafe","Bakery"],hungry:["Dining","Cafe","Bakery"],restaurant:["Dining"],coffee:["Cafe"],tea:["Cafe"],drink:["Cafe","Bar"],dessert:["Dessert","Bakery"],sweet:["Dessert","Bakery"],"ice cream":["Dessert"],cake:["Bakery","Dessert"],bread:["Bakery"],kid:["Arcade","Toys","Cinema","Baby"],child:["Arcade","Toys","Cinema","Baby"],rain:["Cinema","Arcade","Books","Cafe"],fun:["Arcade","Cinema","Toys"],play:["Arcade","Toys"],game:["Arcade","Toys"],baby:["Baby"],shoe:["Footwear"],sneaker:["Footwear"],run:["Footwear","Fitness"],sport:["Footwear","Fitness"],gym:["Fitness"],workout:["Fitness","Footwear"],cloth:["Fashion","Dept. Store"],shirt:["Fashion"],dress:["Fashion"],fashion:["Fashion","Dept. Store"],outfit:["Fashion","Footwear"],phone:["Electronics"],laptop:["Computers","Electronics"],computer:["Computers"],tech:["Electronics","Computers","Audio"],gadget:["Electronics","Audio"],headphone:["Audio"],speaker:["Audio"],book:["Books"],read:["Books","Cafe"],study:["Books","Cafe"],movie:["Cinema"],film:["Cinema"],skin:["Beauty","Clinic"],makeup:["Beauty"],hair:["Salon"],beauty:["Beauty","Salon","Clinic"],pet:["Pet"],dog:["Pet"],cat:["Pet"],medic:["Pharmacy","Clinic"],sick:["Pharmacy","Clinic"],vitamin:["Pharmacy"],glasses:["Eyewear"],flower:["Florist"],travel:["Travel"],flight:["Travel"],hotel:["Travel"],holiday:["Travel"],furniture:["Home"],decor:["Home"],kitchen:["Home","Appliances"],music:["Music"],guitar:["Music"],camera:["Photo"],photo:["Photo"],grocer:["Supermarket"],vegetable:["Supermarket"],bike:["Cycling"],car:["Auto"],wine:["Bar"],beer:["Bar"],bank:["Services"],atm:["Services"],money:["Services"],tv:["Appliances"],jewel:["Jewelry"],ring:["Jewelry"],necklace:["Jewelry"],gold:["Jewelry"],art:["Hobby"],paint:["Hobby"],craft:["Hobby"]};
+function localAssist(text){
+ const q=text.toLowerCase(),score={};
+ Object.entries(KW).forEach(([w,cats])=>{if(q.includes(w))cats.forEach((c,i)=>score[c]=(score[c]||0)+Math.max(1,3-i))});
+ const r=S.map(s=>{let n=score[s.cat]||0;if(q.includes(s.name.toLowerCase()))n+=6;if(q.includes(s.cat.toLowerCase()))n+=3;return{s,n}}).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+ const used={},picks=[];
+ for(const {s} of r){if((used[s.cat]||0)>=2)continue;used[s.cat]=(used[s.cat]||0)+1;picks.push({name:s.name,reason:s.cat+" on "+s.floor+", unit "+s.unit});if(picks.length==5)break}
+ return picks.length?{message:"Here are some places that could help:",picks}:{message:"I couldn't match that. Try words like gift, lunch, kids, or shoes, or browse by category.",picks:[]}
+}
 async function ask(t){
  const text=(t??qi.value).trim();if(!text)return;qi.value="";sb.innerHTML='<div class="m">Thinking through the directory...</div>';
  try{
-  const sample=await claude.use("sample");if(!sample)throw 0;
+  let r;try{const sample=window.claude?await claude.use("sample"):null;if(!sample)throw 0;
   const dir=S.map(s=>`${s.name}|${s.cat}|${s.floor}`).join("\n");
-  const r=await sample.json(`You are a mall concierge. From the directory (name|category|floor) pick 2-5 stores that best match the shopper's request. Reply ONLY JSON: {"message":"one short friendly sentence","picks":[{"name":"exact store name","reason":"one short sentence"}]}. Use exact names only; if nothing fits, return empty picks and say so.\n\nRequest: ${text}\n\nDirectory:\n${dir}`);
+  r=await sample.json(`You are a mall concierge. From the directory (name|category|floor) pick 2-5 stores that best match the shopper's request. Reply ONLY JSON: {"message":"one short friendly sentence","picks":[{"name":"exact store name","reason":"one short sentence"}]}. Use exact names only; if nothing fits, return empty picks and say so.\n\nRequest: ${text}\n\nDirectory:\n${dir}`);}catch(e){r=localAssist(text)}
   const picks=(r.picks||[]).map(p=>({...p,s:S.find(x=>x.name==p.name)})).filter(p=>p.s);
   sb.innerHTML=`<b style="font-size:14px">${esc(r.message||"")}</b>`+picks.map((p,i)=>`<button class="pick" data-n="${esc(p.s.name)}">${logo(p.s.name,0,p.s.logo)}<div><div class="n">${esc(p.s.name)}</div><div class="m">${p.s.floor} · Unit ${p.s.unit}</div><div class="m" style="font-size:12px;margin-top:4px">${esc(p.reason||"")}</div></div></button>`).join("")+(picks.length?"":'<div class="m">Try rephrasing, or browse by category.</div>');
   sb.querySelectorAll(".pick").forEach(b=>b.onclick=()=>{sel=S.find(x=>x.name==b.dataset.n);modal.classList.remove("open");render()});
@@ -86,7 +95,7 @@ const BASE=S.map(s=>({...s}));
 function applyState(){S.length=0;BASE.forEach(b=>S.push({...b}));state.added.forEach(a=>S.push({...a}));Object.entries(state.edits).forEach(([i,e])=>{const s=S.find(x=>x.id==i);s&&Object.assign(s,e)});for(let i=S.length-1;i>=0;i--)if(state.deleted.includes(S[i].id))S.splice(i,1)}
 applyState();
 let canEdit=true,editing=false;
-function readImage(f,cb){if(!f)return;const u=URL.createObjectURL(f),im=new Image();im.onload=()=>{const k=Math.min(1,256/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);cb(c.toDataURL("image/png"))};im.onerror=()=>alert("Couldn't read that image.");im.src=u}
+function readImage(f,cb,max=256){if(!f)return;const u=URL.createObjectURL(f),im=new Image();im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);cb(c.toDataURL("image/png"))};im.onerror=()=>alert("Couldn't read that image.");im.src=u}
 function setF(s,k,v){s[k]=v;const e=(state.edits[s.id]??={});e[k]=v;if(k=="cat"){const t=T.find(t=>t[0].toLowerCase()==v.toLowerCase());if(t){s.icon=t[1];e.icon=t[1]}}}
 function addStore(){const id=Math.max(999,...S.map(x=>x.id))+1;const s={id,name:"New store",cat:"Other",icon:"🏬",floor:"GF",unit:"",hours:"10:00 - 22:00",phone:"",desc:"",logo:""};state.added.push({...s});S.push(s);sel=s;render()}
 function delStore(s){if(!confirm("Delete "+s.name+"?"))return;if(state.added.some(a=>a.id==s.id))state.added=state.added.filter(a=>a.id!=s.id);else state.deleted.push(s.id);delete state.edits[s.id];S.splice(S.indexOf(s),1);sel=null;render()}
@@ -96,7 +105,7 @@ function importData(f){if(!f)return;f.text().then(t=>{try{const d=JSON.parse(t);
 const FIELDS=[["name","Store name"],["cat","Category"],["floor","Floor (GF, 1F...)"],["unit","Unit"],["hours","Opening hours"],["phone","Phone"],["desc","Description"]];
 function decorate(){
  const mall=state.mall,h1=app.querySelector("h1"),mk=app.querySelector(".mark");
- if(h1){h1.textContent=mall.name||"Ciputra World";if(mall.logo){mk.style.background="#fff";mk.style.border="1px solid var(--line)";mk.innerHTML=`<img src="${mall.logo}" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:18px">`}}
+ if(h1){h1.textContent=mall.name||"Ciputra World";if(mall.logo){mk.style.background="#fff";mk.style.width="auto";mk.style.minWidth="96px";mk.style.maxWidth="58%";mk.style.padding="8px";mk.innerHTML=`<img src="${mall.logo}" alt="" style="height:100%;max-width:100%;object-fit:contain">`}}
  if(!canEdit)return;
  app.insertAdjacentHTML("afterbegin",`<div class="tb">${editing?'<button class="btn" id="cx">Cancel</button><button class="btn pri" id="sv">Save changes</button>':'<button class="btn" id="ed">✎ Edit</button>'}</div>`);
  const $=id=>document.getElementById(id);
@@ -106,7 +115,7 @@ function decorate(){
  if(!editing)return;
  if(!sel&&h1){
   app.querySelector(".top").insertAdjacentHTML("afterend",`<div class="panel"><h3>Mall branding</h3><div class="lrow"><label class="btn">Upload mall logo<input class="vh" type="file" accept="image/*" id="mf"></label>${mall.logo?'<button class="btn" id="mr">Remove</button>':""}</div><label class="fld">Mall name<input id="mn" value="${esc(mall.name||"Ciputra World")}"></label><div class="lrow"><button class="btn" id="add">+ Add store</button><button class="btn" id="ex">Export backup</button><label class="btn">Import backup<input class="vh" type="file" accept="application/json,.json" id="im"></label></div><div class="m" style="margin-top:8px">Tap any store below to edit its details and logo.</div></div>`);
-  $("mf").onchange=e=>readImage(e.target.files[0],d=>{mall.logo=d;render()});
+  $("mf").onchange=e=>readImage(e.target.files[0],d=>{mall.logo=d;render()},512);
   if($("mr"))$("mr").onclick=()=>{delete mall.logo;render()};
   $("add").onclick=addStore;$("ex").onclick=exportData;$("im").onchange=e=>importData(e.target.files[0]);
   $("mn").oninput=e=>{mall.name=e.target.value;h1.textContent=mall.name||"Ciputra World"};
